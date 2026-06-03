@@ -153,7 +153,7 @@ describe('PaneShell composition', () => {
 
     const rendered = render(
       <PaneShell>
-        <Pane id="files" side="left" width="240px">
+        <Pane id="files" resizable side="left" width="240px">
           files
         </Pane>
         <PaneMain>main</PaneMain>
@@ -329,5 +329,68 @@ describe('PaneShell composition', () => {
     fireEvent.pointerUp(window, { clientX: 760 })
 
     expect($paneStates.get().preview?.widthOverride).toBe(340)
+  })
+
+  it('clears resize cursor when Escape cancels an active pane drag', () => {
+    const rendered = render(
+      <PaneShell>
+        <Pane id="files" resizable side="left" width="240px">
+          <span data-testid="files-content">files</span>
+        </Pane>
+        <PaneMain>main</PaneMain>
+      </PaneShell>
+    )
+
+    const paneCell = rendered.getByTestId('files-content').parentElement
+
+    if (!(paneCell instanceof HTMLElement)) {
+      throw new Error('Expected pane cell element')
+    }
+
+    document.body.style.cursor = 'wait'
+    document.body.style.userSelect = 'text'
+    mockWidth(paneCell, 240)
+
+    fireEvent.pointerDown(rendered.getByLabelText('Resize files'), { clientX: 240, pointerId: 1 })
+
+    expect(document.body.style.cursor).toBe('col-resize')
+    expect(document.body.style.userSelect).toBe('none')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(document.body.style.cursor).toBe('wait')
+    expect(document.body.style.userSelect).toBe('text')
+  })
+
+  it('clears resize cursor when pointer capture is lost during pane drag', () => {
+    const rendered = render(
+      <PaneShell>
+        <Pane id="files" resizable side="left" width="240px">
+          <span data-testid="files-content">files</span>
+        </Pane>
+        <PaneMain>main</PaneMain>
+      </PaneShell>
+    )
+
+    const paneCell = rendered.getByTestId('files-content').parentElement
+
+    if (!(paneCell instanceof HTMLElement)) {
+      throw new Error('Expected pane cell element')
+    }
+
+    document.body.style.cursor = 'wait'
+    document.body.style.userSelect = 'text'
+    mockWidth(paneCell, 240)
+    const separator = rendered.getByLabelText('Resize files')
+
+    fireEvent.pointerDown(separator, { clientX: 240, pointerId: 1 })
+
+    expect(document.body.style.cursor).toBe('col-resize')
+    expect(document.body.style.userSelect).toBe('none')
+
+    fireEvent(separator, new PointerEvent('lostpointercapture', { pointerId: 1 }))
+
+    expect(document.body.style.cursor).toBe('wait')
+    expect(document.body.style.userSelect).toBe('text')
   })
 })

@@ -217,6 +217,14 @@ export function Pane({
   const lo = widthToPx(minWidth) ?? DEFAULT_RESIZE_MIN_WIDTH
   const hi = widthToPx(maxWidth) ?? Number.POSITIVE_INFINITY
   const side = slot?.side ?? 'left'
+  const activeResizeCleanupRef = useRef<(() => void) | null>(null)
+
+  useEffect(
+    () => () => {
+      activeResizeCleanupRef.current?.()
+    },
+    []
+  )
 
   const startResize = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -227,12 +235,14 @@ export function Pane({
       }
 
       event.preventDefault()
+      activeResizeCleanupRef.current?.()
 
       const handle = event.currentTarget
       const { pointerId, clientX: startX } = event
       const dir = side === 'left' ? 1 : -1
       const restoreCursor = document.body.style.cursor
       const restoreSelect = document.body.style.userSelect
+      let cleaned = false
 
       handle.setPointerCapture?.(pointerId)
       document.body.style.cursor = 'col-resize'
@@ -244,19 +254,36 @@ export function Pane({
       }
 
       const cleanup = () => {
+        if (cleaned) {
+          return
+        }
+
+        cleaned = true
         document.body.style.cursor = restoreCursor
         document.body.style.userSelect = restoreSelect
         handle.releasePointerCapture?.(pointerId)
         window.removeEventListener('pointermove', onMove, true)
         window.removeEventListener('pointerup', cleanup, true)
         window.removeEventListener('pointercancel', cleanup, true)
+        window.removeEventListener('keydown', onKeyDown, true)
         window.removeEventListener('blur', cleanup)
+        handle.removeEventListener('lostpointercapture', cleanup)
+        activeResizeCleanupRef.current = null
       }
 
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          cleanup()
+        }
+      }
+
+      activeResizeCleanupRef.current = cleanup
       window.addEventListener('pointermove', onMove, true)
       window.addEventListener('pointerup', cleanup, true)
       window.addEventListener('pointercancel', cleanup, true)
+      window.addEventListener('keydown', onKeyDown, true)
       window.addEventListener('blur', cleanup)
+      handle.addEventListener('lostpointercapture', cleanup)
     },
     [canResize, hi, id, lo, side]
   )
