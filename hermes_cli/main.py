@@ -7314,9 +7314,15 @@ def _desktop_packaged_executable(desktop_dir: Path) -> Optional[Path]:
         candidates = [
             release_dir / "linux-unpacked" / "hermes",
             release_dir / "linux-unpacked" / "Hermes",
+            release_dir / "linux-x64-unpacked" / "hermes",
+            release_dir / "linux-x64-unpacked" / "Hermes",
             release_dir / "linux-arm64-unpacked" / "hermes",
             release_dir / "linux-arm64-unpacked" / "Hermes",
+            release_dir / "linux-armv7l-unpacked" / "hermes",
+            release_dir / "linux-armv7l-unpacked" / "Hermes",
         ]
+        for unpacked_dir in release_dir.glob("linux-*-unpacked"):
+            candidates.extend([unpacked_dir / "hermes", unpacked_dir / "Hermes"])
 
     existing = [p for p in candidates if p.exists()]
     if not existing:

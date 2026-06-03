@@ -133,6 +133,17 @@ def test_gui_skip_build_requires_existing_packaged_app(tmp_path, monkeypatch, ca
     assert "no packaged desktop app" in capsys.readouterr().out
 
 
+def test_desktop_packaged_executable_finds_linux_arm64_output(tmp_path, monkeypatch):
+    root = _make_desktop_tree(tmp_path)
+    desktop_dir = root / "apps" / "desktop"
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+    packaged_exe = desktop_dir / "release" / "linux-arm64-unpacked" / "Hermes"
+    packaged_exe.parent.mkdir(parents=True)
+    packaged_exe.write_text("", encoding="utf-8")
+
+    assert cli_main._desktop_packaged_executable(desktop_dir) == packaged_exe
+
+
 def test_gui_skip_build_launches_existing_packaged_app_without_npm(tmp_path, monkeypatch):
     root = _make_desktop_tree(tmp_path)
     desktop_dir = root / "apps" / "desktop"
