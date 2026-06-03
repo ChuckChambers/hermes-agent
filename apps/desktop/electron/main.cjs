@@ -254,6 +254,22 @@ const BOOT_FAKE_STEP_MS = (() => {
   return Math.max(120, raw)
 })()
 const APP_NAME = 'Hermes'
+
+function parseDesktopNumberEnv(name) {
+  const raw = process.env[name]
+  if (raw == null || raw === '') {
+    return null
+  }
+
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : null
+}
+
+const DEFAULT_WINDOW_WIDTH = parseDesktopNumberEnv('HERMES_DESKTOP_DEFAULT_WIDTH') ?? 1220
+const DEFAULT_WINDOW_HEIGHT = parseDesktopNumberEnv('HERMES_DESKTOP_DEFAULT_HEIGHT') ?? 800
+const DEFAULT_WINDOW_X = parseDesktopNumberEnv('HERMES_DESKTOP_DEFAULT_X')
+const DEFAULT_WINDOW_Y = parseDesktopNumberEnv('HERMES_DESKTOP_DEFAULT_Y')
+const DEFAULT_ZOOM_LEVEL = parseDesktopNumberEnv('HERMES_DESKTOP_DEFAULT_ZOOM_LEVEL')
 const TITLEBAR_HEIGHT = 34
 const MACOS_TRAFFIC_LIGHTS_HEIGHT = 14
 const WINDOW_BUTTON_POSITION = {
@@ -4559,9 +4575,9 @@ async function startHermes() {
 
 function createWindow() {
   const icon = getAppIconPath()
-  mainWindow = new BrowserWindow({
-    width: 1220,
-    height: 800,
+  const windowOptions = {
+    width: DEFAULT_WINDOW_WIDTH,
+    height: DEFAULT_WINDOW_HEIGHT,
     minWidth: 900,
     minHeight: 620,
     title: 'Hermes',
@@ -4585,7 +4601,16 @@ function createWindow() {
       nodeIntegration: false,
       devTools: true
     }
-  })
+  }
+
+  if (DEFAULT_WINDOW_X !== null) {
+    windowOptions.x = DEFAULT_WINDOW_X
+  }
+  if (DEFAULT_WINDOW_Y !== null) {
+    windowOptions.y = DEFAULT_WINDOW_Y
+  }
+
+  mainWindow = new BrowserWindow(windowOptions)
 
   if (IS_MAC) {
     mainWindow.setWindowButtonPosition?.(WINDOW_BUTTON_POSITION)
@@ -4611,6 +4636,13 @@ function createWindow() {
   installPreviewShortcut(mainWindow)
   installDevToolsShortcut(mainWindow)
   installZoomShortcuts(mainWindow)
+  if (DEFAULT_ZOOM_LEVEL !== null) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.setZoomLevel(DEFAULT_ZOOM_LEVEL)
+      }
+    })
+  }
   installContextMenu(mainWindow)
   mainWindow.webContents.setWindowOpenHandler(details => {
     openExternalUrl(details.url)
