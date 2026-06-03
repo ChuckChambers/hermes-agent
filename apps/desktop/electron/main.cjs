@@ -4112,12 +4112,61 @@ function resetBootProgressForReconnect() {
   )
 }
 
+function listProcessChildren(pid) {
+  if (!Number.isInteger(pid) || pid <= 0 || IS_WINDOWS) {
+    return []
+  }
+
+  try {
+    return execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' })
+      .split(/\s+/)
+      .map(value => Number.parseInt(value, 10))
+      .filter(value => Number.isInteger(value) && value > 0)
+  } catch {
+    return []
+  }
+}
+
+function terminateProcessTree(pid, signal = 'SIGTERM') {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return
+  }
+
+  if (IS_WINDOWS) {
+    try {
+      process.kill(pid, signal)
+    } catch {}
+    return
+  }
+
+  for (const childPid of listProcessChildren(pid)) {
+    terminateProcessTree(childPid, signal)
+  }
+
+  try {
+    process.kill(pid, signal)
+  } catch {}
+}
+
+let backendTreeCleanupStarted = false
+
+function cleanupHermesBackendTree() {
+  if (backendTreeCleanupStarted) {
+    return
+  }
+  backendTreeCleanupStarted = true
+
+  if (hermesProcess && !hermesProcess.killed) {
+    terminateProcessTree(hermesProcess.pid, 'SIGTERM')
+  }
+  stopAllPoolBackends()
+}
+
 function resetHermesConnection() {
   connectionPromise = null
 
-  if (hermesProcess && !hermesProcess.killed) {
-    hermesProcess.kill('SIGTERM')
-  }
+  cleanupHermesBackendTree()
+  backendTreeCleanupStarted = false
 
   hermesProcess = null
   resetBootProgressForReconnect()
@@ -5457,11 +5506,15 @@ app.on('before-quit', () => {
   flushDesktopLogBufferSync()
   closePreviewWatchers()
 
-  if (hermesProcess && !hermesProcess.killed) {
-    hermesProcess.kill('SIGTERM')
-  }
-  stopAllPoolBackends()
+  cleanupHermesBackendTree()
 })
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    cleanupHermesBackendTree()
+    app.quit()
+  })
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
