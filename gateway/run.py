@@ -9801,50 +9801,15 @@ class GatewayRunner:
             else:
                 history_len = agent_result.get("history_offset", len(history))
                 new_messages = agent_messages[history_len:] if len(agent_messages) > history_len else []
-
-                # If no new messages found (edge case), fall back to simple user/assistant
-                if not new_messages:
-                    _user_entry = {"role": "user", "content": message_text, "timestamp": ts}
-                    if event.message_id:
-                        _user_entry["message_id"] = str(event.message_id)
-                    self.session_store.append_to_transcript(
-                        session_entry.session_id,
-                        _user_entry,
-                    )
-                    if response:
-                        self.session_store.append_to_transcript(
-                            session_entry.session_id,
-                            {"role": "assistant", "content": response, "timestamp": ts}
-                        )
-                else:
-                    # The agent already persisted these messages to SQLite via
-                    # _flush_messages_to_session_db(), so skip the DB write here
-                    # to prevent the duplicate-write bug (#860).  We still write
-                    # to JSONL for backward compatibility and as a backup.
-                    agent_persisted = self._session_db is not None
-                    # Attach the inbound platform message_id to the first user
-                    # entry written this turn so platform-level quote-resolution
-                    # (e.g. Yuanbao QuoteContextMiddleware's transcript fallback)
-                    # can find earlier @bot messages by their original message_id.
-                    _user_msg_id_attached = False
-                    for msg in new_messages:
-                        # Skip system messages (they're rebuilt each run)
-                        if msg.get("role") == "system":
-                            continue
-                        # Add timestamp to each message for debugging
-                        entry = {**msg, "timestamp": ts}
-                        if (
-                            not _user_msg_id_attached
-                            and msg.get("role") == "user"
-                            and event.message_id
-                            and "message_id" not in entry
-                        ):
-                            entry["message_id"] = str(event.message_id)
-                            _user_msg_id_attached = True
-                        self.session_store.append_to_transcript(
-                            session_entry.session_id, entry,
-                            skip_db=agent_persisted,
-                        )
+                self._persist_gateway_turn_messages(
+                    session_id=session_entry.session_id,
+                    new_messages=new_messages,
+                    message_text=message_text,
+                    event=event,
+                    response=response,
+                    timestamp=ts,
+                    agent_persisted=self._session_db is not None,
+                )
             
             # Token counts and model are now persisted by the agent directly.
             # Keep only last_prompt_tokens here for context-window tracking and
@@ -9958,6 +9923,67 @@ class GatewayRunner:
         finally:
             # Restore session context variables to their pre-handler state
             self._clear_session_env(_session_env_tokens)
+
+    def _persist_gateway_turn_messages(
+        self,
+        *,
+        session_id: str,
+        new_messages: list[dict],
+        message_text: str,
+        event,
+        response: str,
+        timestamp: str,
+        agent_persisted: bool,
+    ) -> None:
+        """Persist the current gateway turn without losing platform user rows.
+
+        Agent-side SQLite persistence can miss the live inbound user message
+        when gateway history filtering/repair shifts ``history_offset``.  The
+        gateway is the authoritative owner of the platform message id, so it
+        always writes the current user row to the session DB.  Assistant/tool
+        rows may still skip DB writes when the agent already persisted them,
+        preserving the duplicate-write fix for model/tool output.
+        """
+
+        if not new_messages:
+            user_entry = {"role": "user", "content": message_text, "timestamp": timestamp}
+            if getattr(event, "message_id", None):
+                user_entry["message_id"] = str(event.message_id)
+            self.session_store.append_to_transcript(session_id, user_entry)
+            if response:
+                self.session_store.append_to_transcript(
+                    session_id,
+                    {"role": "assistant", "content": response, "timestamp": timestamp},
+                )
+            return
+
+        user_msg_id_attached = False
+        saw_user_message = any(msg.get("role") == "user" for msg in new_messages)
+        if not saw_user_message:
+            user_entry = {"role": "user", "content": message_text, "timestamp": timestamp}
+            if getattr(event, "message_id", None):
+                user_entry["message_id"] = str(event.message_id)
+            self.session_store.append_to_transcript(session_id, user_entry)
+
+        for msg in new_messages:
+            if msg.get("role") == "system":
+                continue
+            entry = {**msg, "timestamp": timestamp}
+            is_current_user = msg.get("role") == "user"
+            if (
+                not user_msg_id_attached
+                and is_current_user
+                and getattr(event, "message_id", None)
+                and "message_id" not in entry
+            ):
+                entry["message_id"] = str(event.message_id)
+                user_msg_id_attached = True
+
+            self.session_store.append_to_transcript(
+                session_id,
+                entry,
+                skip_db=bool(agent_persisted and not is_current_user),
+            )
 
     def _format_session_info(self) -> str:
         """Resolve current model config and return a formatted info block.
