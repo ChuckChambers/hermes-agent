@@ -298,7 +298,6 @@ export function Pane({
   const canResize = open && resizable
   const lo = widthToPx(minWidth) ?? DEFAULT_RESIZE_MIN_WIDTH
   const hi = widthToPx(maxWidth) ?? Number.POSITIVE_INFINITY
-  const side = slot?.side ?? 'left'
   const activeResizeCleanupRef = useRef<(() => void) | null>(null)
 
   useEffect(
